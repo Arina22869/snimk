@@ -366,8 +366,8 @@ async def spin_cb(cb: CallbackQuery):
 # ============= ЦИТАТЫ =============
 @dp.message(Command("цитата"))
 async def quote_handler(m: Message):
-        logging.info(f"🔥 цитата от {m.from_user.id}, reply={m.reply_to_message}")
-    # Проверяем, есть ли ответ на сообщение
+    logging.info(f"🔥 цитата от {m.from_user.id}, reply={m.reply_to_message}")
+    
     if m.reply_to_message:
         original = m.reply_to_message.text
         if not original:
@@ -384,7 +384,6 @@ async def quote_handler(m: Message):
             )
             conn.commit()
 
-        # Отвечаем на исходное сообщение
         await m.reply_to_message.reply(
             f"💬 *{original}*\n\n— {author_name}",
             parse_mode="Markdown"
@@ -407,7 +406,6 @@ async def quote_handler(m: Message):
                 await asyncio.sleep(0.5)
                 continue
             raise
-
 # ============= ЦАРЬ ССГШКИ =============
 @dp.message(Command("царь"))
 async def king_cmd(m: Message):
