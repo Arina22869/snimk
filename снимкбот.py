@@ -366,14 +366,9 @@ async def spin_cb(cb: CallbackQuery):
 # ============= ЦИТАТЫ =============
 @dp.message(Command("цитата"))
 async def quote_handler(m: Message):
-    # Даём боту время «увидеть» reply (костыль, но работает)
-    await asyncio.sleep(0.5)
+    # Даём боту время «увидеть» reply
+    await asyncio.sleep(0.3)
     
-    # Обновляем сообщение, чтобы точно получить reply
-    msg = await m.chat.send_copy(m.message_id, disable_notification=True)
-    await msg.delete()
-    
-    # Теперь проверяем reply
     if m.reply_to_message:
         original = m.reply_to_message.text
         if not original:
