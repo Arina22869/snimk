@@ -366,6 +366,7 @@ async def spin_cb(cb: CallbackQuery):
 # ============= ЦИТАТЫ =============
 @dp.message(Command("цитата"))
 async def quote_handler(m: Message):
+        logging.info(f"🔥 цитата от {m.from_user.id}, reply={m.reply_to_message}")
     # Проверяем, есть ли ответ на сообщение
     if m.reply_to_message:
         original = m.reply_to_message.text
