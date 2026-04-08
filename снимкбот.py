@@ -497,6 +497,29 @@ async def spin_callback(callback: CallbackQuery):
 # ---- ЦИТАТЫ ----
 @dp.message(Command("цитата"))
 async def cmd_quote(message: Message):
+    # Если команда в ответ на сообщение — добавляем цитату
+    if message.reply_to_message:
+        # Получаем текст исходного сообщения
+        original_text = message.reply_to_message.text
+        if not original_text:
+            await message.answer("❌ В исходном сообщении нет текста для цитаты.")
+            return
+        
+        author_id = message.reply_to_message.from_user.id
+        author_name = message.reply_to_message.from_user.full_name
+        
+        # Добавляем в базу
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO quotes (text, author_id, author_name, date) VALUES (?, ?, ?, ?)",
+                (original_text, author_id, author_name, datetime.now().isoformat())
+            )
+            conn.commit()
+        
+        await message.answer(f"✅ Цитата от {author_name} добавлена!")
+        return
+    
+    # Иначе — показываем случайную цитату
     with get_db() as conn:
         cursor = conn.execute("SELECT text, author_name FROM quotes ORDER BY RANDOM() LIMIT 1")
         row = cursor.fetchone()
@@ -504,26 +527,7 @@ async def cmd_quote(message: Message):
             text, author = row
             await message.answer(f"💬 *{text}*\n\n— {author}", parse_mode="Markdown")
         else:
-            await message.answer("📭 Цитат пока нет. Добавьте первую через /новаяцитата")
-
-@dp.message(Command("новаяцитата"))
-async def cmd_new_quote(message: Message):
-    if message.from_user.id not in ADMIN_IDS:
-        await message.answer("❌ Только для админов.")
-        return
-    
-    text = message.text.replace("/новаяцитата", "").strip()
-    if not text:
-        await message.answer("📝 Формат: /новаяцитата <текст цитаты>")
-        return
-    
-    with get_db() as conn:
-        conn.execute(
-            "INSERT INTO quotes (text, author_id, author_name, date) VALUES (?, ?, ?, ?)",
-            (text, message.from_user.id, message.from_user.full_name, datetime.now().isoformat())
-        )
-        conn.commit()
-    await message.answer("✅ Цитата добавлена!")
+            await message.answer("📭 Цитат пока нет. Добавьте первую, ответив на сообщение командой /цитата")
 
 # ---- ЦАРЬ ССГШКИ ----
 @dp.message(Command("царь"))
