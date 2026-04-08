@@ -365,35 +365,32 @@ async def spin_cb(cb: CallbackQuery):
 
 # ============= ЦИТАТЫ =============
 @dp.message(Command("цитата"))
-async def add_quote(m: Message):
-    """Добавить цитату (только в ответ на сообщение)"""
-    if not m.reply_to_message:
-        await m.answer("❌ Чтобы добавить цитату, ответьте на сообщение командой /цитата")
-        return
+async def quote_handler(m: Message):
+    # Проверяем, есть ли ответ на сообщение
+    if m.reply_to_message:
+        original = m.reply_to_message.text
+        if not original:
+            await m.answer("❌ В сообщении нет текста.")
+            return
 
-    original = m.reply_to_message.text
-    if not original:
-        await m.answer("❌ В исходном сообщении нет текста.")
-        return
+        author_id = m.reply_to_message.from_user.id
+        author_name = m.reply_to_message.from_user.full_name
 
-    author_id = m.reply_to_message.from_user.id
-    author_name = m.reply_to_message.from_user.full_name
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO quotes (text, author_id, author_name, date) VALUES (?, ?, ?, ?)",
+                (original, author_id, author_name, datetime.now().isoformat())
+            )
+            conn.commit()
 
-    with get_db() as conn:
-        conn.execute(
-            "INSERT INTO quotes (text, author_id, author_name, date) VALUES (?, ?, ?, ?)",
-            (original, author_id, author_name, datetime.now().isoformat())
+        # Отвечаем на исходное сообщение
+        await m.reply_to_message.reply(
+            f"💬 *{original}*\n\n— {author_name}",
+            parse_mode="Markdown"
         )
-        conn.commit()
+        return
 
-    await m.reply_to_message.reply(
-        f"💬 *{original}*\n\n— {author_name}",
-        parse_mode="Markdown"
-    )
-
-@dp.message(Command("рандом"))
-async def random_quote(m: Message):
-    """Показать случайную цитату"""
+    # Если нет ответа — показываем случайную цитату
     for attempt in range(3):
         try:
             with get_db() as conn:
@@ -402,7 +399,7 @@ async def random_quote(m: Message):
                 if row:
                     await m.answer(f"💬 *{row[0]}*\n\n— {row[1]}", parse_mode="Markdown")
                 else:
-                    await m.answer("📭 Цитат пока нет. Добавьте первую, ответив на сообщение командой /цитата")
+                    await m.answer("📭 Цитат пока нет. Ответьте на сообщение командой /цитата, чтобы добавить")
             return
         except sqlite3.OperationalError as e:
             if "database is locked" in str(e) and attempt < 2:
