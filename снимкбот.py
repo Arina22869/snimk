@@ -1,53 +1,31 @@
 import logging
 import sqlite3
 import random
+import asyncio
+import json
+import traceback
+import os
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
 from aiogram.types import Message, InlineKeyboardButton, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-import asyncio
-import json
-import traceback
-
-# ============= Google Sheets API =============
 import gspread
 from google.oauth2.service_account import Credentials
-# =============================================
 
 # ============= НАСТРОЙКИ =============
-TOKEN = "8539041735:AAEPU2_9wus9Tv82jDEVcj213kvnsxNMU2s"
+TOKEN = os.environ.get("BOT_TOKEN")
+if not TOKEN:
+    raise ValueError("❌ BOT_TOKEN не найден! Добавьте переменную окружения BOT_TOKEN на сервере")
+
 ADMIN_IDS = [1665864236]
 
-# ID твоей таблицы (из ссылки)
+# ID таблицы и ключ
 SPREADSHEET_ID = "1oMohwWx3xIEt9N_s9NXMAerKM4JReqVLozadPC52ZJA"
 # =====================================
 
-# ============= Смайлики для предметов =============
-ITEM_EMOJIS = {
-    "кепка": "🧢",
-    "носки": "🧦",
-    "кружка": "☕",
-    "брелок": "🔑",
-    "стикеры": "🎨",
-    "снимочков": "🪙",
-    "снимочки": "🪙",
-    "ТЗ": "⏰",
-    "статус": "📝",
-    "опоздать": "⏳",
-    "бонусный сундук": "🎁",
-    "фото": "📸",
-    "фриспин": "🎰",
-    "музыку": "🎵",
-    "джекпот": "💎",
-}
-# =====================================
-
-logging.basicConfig(level=logging.INFO)
-bot = Bot(token=TOKEN)
-dp = Dispatcher()
-
-# ============= ВШИТЫЙ КЛЮЧ (НОВЫЙ) =============
+# ============= КЛЮЧ (вшит, не бойся) =============
 KEY_JSON = '''{
   "type": "service_account",
   "project_id": "snimk-489208",
@@ -61,99 +39,25 @@ KEY_JSON = '''{
   "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/snimk-386%40snimk-489208.iam.gserviceaccount.com",
   "universe_domain": "googleapis.com"
 }'''
+# ================================================
 
-def get_gs_client():
-    try:
-        creds_dict = json.loads(KEY_JSON)
-        # Используем правильные scopes для Sheets и Drive
-        creds = Credentials.from_service_account_info(
-            creds_dict,
-            scopes=[
-                "https://www.googleapis.com/auth/spreadsheets",
-                "https://www.googleapis.com/auth/drive",
-                "https://spreadsheets.google.com/feeds"
-            ]
-        )
-        client = gspread.authorize(creds)
-        logging.info("✅ Успешное подключение к Google Sheets")
-        return client
-    except Exception as e:
-        logging.error(f"❌ Ошибка подключения к Google Sheets: {e}")
-        traceback.print_exc()
-        return None
+# ============= Смайлики для предметов =============
+ITEM_EMOJIS = {
+    "кепка": "🧢", "носки": "🧦", "кружка": "☕", "брелок": "🔑",
+    "стикеры": "🎨", "снимочков": "🪙", "снимочки": "🪙", "ТЗ": "⏰",
+    "статус": "📝", "опоздать": "⏳", "бонусный сундук": "🎁",
+    "фото": "📸", "фриспин": "🎰", "музыку": "🎵", "джекпот": "💎",
+}
+# =================================================
 
-def get_users_sheet():
-    client = get_gs_client()
-    if not client:
-        return None
-    try:
-        # Пробуем открыть таблицу и лист
-        sheet = client.open_by_key(SPREADSHEET_ID)
-        worksheet = sheet.worksheet("users")
-        logging.info(f"✅ Лист 'users' найден, строк: {len(worksheet.get_all_values())}")
-        return worksheet
-    except gspread.WorksheetNotFound:
-        logging.error(f"❌ Лист 'users' не найден в таблице")
-        return None
-    except Exception as e:
-        logging.error(f"❌ Ошибка получения листа users: {e}")
-        traceback.print_exc()
-        return None
+logging.basicConfig(level=logging.INFO)
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
 
-# ============= Работа с пользователями =============
-def get_user_row(user_id):
-    sheet = get_users_sheet()
-    if not sheet:
-        return None
-    try:
-        all_rows = sheet.get_all_values()
-        user_id_str = str(user_id)
-        for i, row in enumerate(all_rows, start=1):
-            if row and row[0] == user_id_str:
-                return i
-        return None
-    except Exception as e:
-        logging.error(f"Ошибка поиска пользователя: {e}")
-        return None
-
-def get_user_snimochki(user_id):
-    sheet = get_users_sheet()
-    if not sheet:
-        return 0
-    try:
-        row_num = get_user_row(user_id)
-        if row_num:
-            val = sheet.cell(row_num, 4).value
-            return int(val) if val and val.lstrip('-').isdigit() else 0
-        return 0
-    except Exception as e:
-        logging.error(f"Ошибка чтения снимочков: {e}")
-        return 0
-
-def update_user_snimochki(user_id, new_value):
-    sheet = get_users_sheet()
-    if not sheet:
-        return False
-    try:
-        row_num = get_user_row(user_id)
-        if row_num:
-            sheet.update_cell(row_num, 4, str(new_value))
-            logging.info(f"✅ Снимочки пользователя {user_id} обновлены: {new_value}")
-            return True
-        else:
-            name = f"User{user_id}"
-            sheet.append_row([str(user_id), name, "0", str(new_value), ""])
-            logging.info(f"✅ Новый пользователь {user_id} создан со снимочками {new_value}")
-            return True
-    except Exception as e:
-        logging.error(f"Ошибка обновления снимочков: {e}")
-        traceback.print_exc()
-        return False
-
-# ============= SQLite (инвентарь) =============
+# ============= БАЗА ДАННЫХ (SQLite) =============
 @contextmanager
 def get_db():
-    conn = sqlite3.connect('inventory.db')
+    conn = sqlite3.connect('snimochki.db')
     try:
         yield conn
     finally:
@@ -161,67 +65,145 @@ def get_db():
 
 def init_db():
     with get_db() as conn:
+        # Инвентарь
         conn.execute('''
             CREATE TABLE IF NOT EXISTS inventory (
                 user_id INTEGER PRIMARY KEY,
                 items TEXT
             )
         ''')
+        # Кэш пользователей из Google Sheets
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS users_cache (
+                user_id INTEGER PRIMARY KEY,
+                name TEXT,
+                brs INTEGER,
+                snimochki INTEGER
+            )
+        ''')
+        # Цитаты
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS quotes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                text TEXT,
+                author_id INTEGER,
+                author_name TEXT,
+                date TEXT
+            )
+        ''')
+        # Царь ССГШки
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS king (
+                id INTEGER PRIMARY KEY,
+                last_date TEXT,
+                last_user_id INTEGER
+            )
+        ''')
         conn.commit()
+        # Добавим пару тестовых цитат
+        cursor = conn.execute("SELECT COUNT(*) FROM quotes")
+        if cursor.fetchone()[0] == 0:
+            sample_quotes = [
+                ("А я думал, дедлайн — это имя!", 1, "Admin", datetime.now().isoformat()),
+                ("Студсовет — это семья, где все друг друга крышуют", 1, "Admin", datetime.now().isoformat()),
+                ("ТЗ — это техническое задание, а не Трудно Забить", 1, "Admin", datetime.now().isoformat()),
+                ("Спикер сказал: 'Я приду через 5 минут' — это был самый длинный час в моей жизни", 1, "Admin", datetime.now().isoformat()),
+            ]
+            for text, author_id, author_name, date in sample_quotes:
+                conn.execute("INSERT INTO quotes (text, author_id, author_name, date) VALUES (?, ?, ?, ?)",
+                           (text, author_id, author_name, date))
+            conn.commit()
 
-def get_inventory(user_id):
+# ============= GOOGLE SHEETS (синхронизация) =============
+def get_gs_client():
+    try:
+        creds_dict = json.loads(KEY_JSON)
+        creds = Credentials.from_service_account_info(creds_dict, scopes=[
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+            "https://spreadsheets.google.com/feeds"
+        ])
+        client = gspread.authorize(creds)
+        return client
+    except Exception as e:
+        logging.error(f"❌ Ошибка подключения к Google Sheets: {e}")
+        return None
+
+def sync_users_from_google():
+    """Синхронизирует данные из Google Sheets в кэш"""
+    client = get_gs_client()
+    if not client:
+        return
+    try:
+        sheet = client.open_by_key(SPREADSHEET_ID).worksheet("users")
+        all_rows = sheet.get_all_values()
+        if len(all_rows) < 2:
+            return
+        
+        with get_db() as conn:
+            conn.execute("DELETE FROM users_cache")
+            for row in all_rows[1:]:
+                if len(row) >= 4 and row[0].strip().isdigit():
+                    user_id = int(row[0])
+                    name = row[1] if len(row) > 1 else f"User{user_id}"
+                    brs = int(row[2]) if len(row) > 2 and row[2].isdigit() else 0
+                    snimochki = int(row[3]) if len(row) > 3 and row[3].lstrip('-').isdigit() else 0
+                    conn.execute(
+                        "INSERT OR REPLACE INTO users_cache (user_id, name, brs, snimochki) VALUES (?, ?, ?, ?)",
+                        (user_id, name, brs, snimochki)
+                    )
+            conn.commit()
+        logging.info("✅ Кэш пользователей обновлён из Google Sheets")
+    except Exception as e:
+        logging.error(f"❌ Ошибка синхронизации: {e}")
+
+def get_user_snimochki(user_id):
+    """Быстрое чтение из кэша"""
     with get_db() as conn:
-        cursor = conn.execute("SELECT items FROM inventory WHERE user_id=?", (user_id,))
+        cursor = conn.execute("SELECT snimochki FROM users_cache WHERE user_id=?", (user_id,))
         row = cursor.fetchone()
         if row:
             return row[0]
-        return ""
+        return 0
 
-def update_inventory(user_id, items_dict):
-    items_str = ",".join([f"{name}:{count}" for name, count in items_dict.items()])
+def update_user_snimochki(user_id, new_value):
+    """Обновляет снимочки и в кэше, и в Google Sheets (фоном)"""
+    # Обновляем в кэше
     with get_db() as conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO inventory (user_id, items) VALUES (?, ?)",
-            (user_id, items_str)
-        )
+        conn.execute("UPDATE users_cache SET snimochki=? WHERE user_id=?", (new_value, user_id))
+        if conn.rowcount == 0:
+            # Если нет в кэше — создаём
+            conn.execute("INSERT INTO users_cache (user_id, name, brs, snimochki) VALUES (?, ?, ?, ?)",
+                        (user_id, f"User{user_id}", 0, new_value))
         conn.commit()
+    
+    # Отправляем в Google Sheets в фоне (без ожидания)
+    async def background_update():
+        client = get_gs_client()
+        if not client:
+            return
+        try:
+            sheet = client.open_by_key(SPREADSHEET_ID).worksheet("users")
+            all_rows = sheet.get_all_values()
+            user_id_str = str(user_id)
+            row_num = None
+            for i, row in enumerate(all_rows, start=1):
+                if row and row[0] == user_id_str:
+                    row_num = i
+                    break
+            if row_num:
+                sheet.update_cell(row_num, 4, str(new_value))
+            else:
+                # Если пользователя нет — добавляем
+                name = f"User{user_id}"
+                sheet.append_row([str(user_id), name, "0", str(new_value), ""])
+            logging.info(f"✅ Google Sheets обновлён для {user_id}: {new_value}")
+        except Exception as e:
+            logging.error(f"❌ Ошибка обновления Google Sheets: {e}")
+    
+    asyncio.create_task(background_update())
 
-def parse_inventory(items_str):
-    if not items_str:
-        return {}
-    result = {}
-    for item in items_str.split(','):
-        if ':' in item:
-            name, count = item.split(':')
-            result[name] = int(count)
-    return result
-
-def add_to_inventory(user_id, item_name, count=1):
-    items_dict = parse_inventory(get_inventory(user_id))
-    items_dict[item_name] = items_dict.get(item_name, 0) + count
-    update_inventory(user_id, items_dict)
-
-def remove_from_inventory(user_id, item_name, count=1):
-    items_dict = parse_inventory(get_inventory(user_id))
-    if item_name in items_dict and items_dict[item_name] >= count:
-        items_dict[item_name] -= count
-        if items_dict[item_name] <= 0:
-            del items_dict[item_name]
-        update_inventory(user_id, items_dict)
-        return True
-    return False
-
-def has_item(user_id, item_name):
-    items_dict = parse_inventory(get_inventory(user_id))
-    return item_name in items_dict and items_dict[item_name] > 0
-
-def get_item_emoji(item_name):
-    for key, emoji in ITEM_EMOJIS.items():
-        if key in item_name.lower():
-            return emoji
-    return "📦"
-
-# ============= Игровая логика =============
+# ============= ИГРОВАЯ ЛОГИКА =============
 def open_chest():
     items = [
         {"name": "кепка \"СНИМК\"", "rarity": "обычный"},
@@ -243,13 +225,7 @@ def open_chest():
         {"name": "20 снимочков", "rarity": "легендарный"},
     ]
     
-    rarity_chances = {
-        "обычный": 0.5,
-        "редкий": 0.3,
-        "очень редкий": 0.15,
-        "легендарный": 0.05
-    }
-    
+    rarity_chances = {"обычный": 0.5, "редкий": 0.3, "очень редкий": 0.15, "легендарный": 0.05}
     rarity_groups = {}
     for item in items:
         if item["rarity"] not in rarity_groups:
@@ -288,7 +264,69 @@ def spin_wheel():
     else:
         return {"type": "jackpot", "value": 50, "name": "ДЖЕКПОТ! +50 снимочков"}
 
-# ============= Клавиатуры =============
+# ============= SQLite (инвентарь) =============
+def get_inventory(user_id):
+    with get_db() as conn:
+        cursor = conn.execute("SELECT items FROM inventory WHERE user_id=?", (user_id,))
+        row = cursor.fetchone()
+        return row[0] if row else ""
+
+def update_inventory(user_id, items_dict):
+    items_str = ",".join([f"{name}:{count}" for name, count in items_dict.items()])
+    with get_db() as conn:
+        conn.execute("INSERT OR REPLACE INTO inventory (user_id, items) VALUES (?, ?)", (user_id, items_str))
+        conn.commit()
+
+def parse_inventory(items_str):
+    if not items_str:
+        return {}
+    result = {}
+    for item in items_str.split(','):
+        if ':' in item:
+            name, count = item.split(':')
+            result[name] = int(count)
+    return result
+
+def add_to_inventory(user_id, item_name, count=1):
+    items_dict = parse_inventory(get_inventory(user_id))
+    items_dict[item_name] = items_dict.get(item_name, 0) + count
+    update_inventory(user_id, items_dict)
+
+def remove_from_inventory(user_id, item_name, count=1):
+    items_dict = parse_inventory(get_inventory(user_id))
+    if item_name in items_dict and items_dict[item_name] >= count:
+        items_dict[item_name] -= count
+        if items_dict[item_name] <= 0:
+            del items_dict[item_name]
+        update_inventory(user_id, items_dict)
+        return True
+    return False
+
+def has_item(user_id, item_name):
+    items_dict = parse_inventory(get_inventory(user_id))
+    return item_name in items_dict and items_dict[item_name] > 0
+
+def get_item_emoji(item_name):
+    for key, emoji in ITEM_EMOJIS.items():
+        if key in item_name.lower():
+            return emoji
+    return "📦"
+
+# ============= КОМАНДЫ =============
+# ---- Главные ----
+@dp.message(Command("start"))
+async def cmd_start(message: Message):
+    user_id = message.from_user.id
+    name = message.from_user.full_name
+    snimochki = get_user_snimochki(user_id)
+    
+    await message.answer(
+        f"👋 Привет, {name}!\n\n"
+        f"🪙 Твои снимочки: {snimochki}\n\n"
+        "🎮 Выбери действие:",
+        reply_markup=main_menu_keyboard()
+    )
+
 def main_menu_keyboard():
     builder = InlineKeyboardBuilder()
     builder.row(
@@ -315,20 +353,6 @@ def chest_result_keyboard():
     builder.row(InlineKeyboardButton(text="◀️ В меню", callback_data="menu"))
     return builder.as_markup()
 
-# ============= Команды =============
-@dp.message(Command("start"))
-async def cmd_start(message: Message):
-    user_id = message.from_user.id
-    name = message.from_user.full_name
-    snimochki = get_user_snimochki(user_id)
-    
-    await message.answer(
-        f"👋 Привет, {name}!\n\n"
-        f"🪙 Твои снимочки: {snimochki}\n\n"
-        "🎮 Выбери действие:",
-        reply_markup=main_menu_keyboard()
-    )
-
 @dp.callback_query(lambda c: c.data == "menu")
 async def back_to_menu(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -352,10 +376,7 @@ async def show_profile(callback: CallbackQuery):
     items_dict = parse_inventory(get_inventory(user_id))
     inventory_text = ""
     if items_dict:
-        inventory_lines = []
-        for item, count in items_dict.items():
-            emoji = get_item_emoji(item)
-            inventory_lines.append(f"• {emoji} {item} ×{count}")
+        inventory_lines = [f"• {get_item_emoji(item)} {item} ×{count}" for item, count in items_dict.items()]
         inventory_text = "\n".join(inventory_lines)
     else:
         inventory_text = "пусто"
@@ -375,10 +396,7 @@ async def show_inventory(callback: CallbackQuery):
     items_dict = parse_inventory(get_inventory(user_id))
     
     if items_dict:
-        inventory_lines = []
-        for item, count in items_dict.items():
-            emoji = get_item_emoji(item)
-            inventory_lines.append(f"• {emoji} {item} ×{count}")
+        inventory_lines = [f"• {get_item_emoji(item)} {item} ×{count}" for item, count in items_dict.items()]
         inventory_text = "\n".join(inventory_lines)
     else:
         inventory_text = "пусто"
@@ -413,7 +431,11 @@ async def open_chest_callback(callback: CallbackQuery):
             f"🎁 Ты открываешь сундук...\n\n"
             f"✨ Выпало: {emoji} {item['name']}\n\n"
             f"🪙 Списано 5 снимочков\n"
-            f"💰 Новый баланс: {snimochki - 5}\n"
+            f"💰 Новый баланс: {s
+
+n
+
+imochki - 5}\n"
             f"🎒 {emoji} {item['name']} добавлен в инвентарь!",
             reply_markup=chest_result_keyboard()
         )
@@ -472,10 +494,96 @@ async def spin_callback(callback: CallbackQuery):
     )
     await callback.answer()
 
-# ============= Запуск =============
+# ---- ЦИТАТЫ ----
+@dp.message(Command("цитата"))
+async def cmd_quote(message: Message):
+    with get_db() as conn:
+        cursor = conn.execute("SELECT text, author_name FROM quotes ORDER BY RANDOM() LIMIT 1")
+        row = cursor.fetchone()
+        if row:
+            text, author = row
+            await message.answer(f"💬 *{text}*\n\n— {author}", parse_mode="Markdown")
+        else:
+            await message.answer("📭 Цитат пока нет. Добавьте первую через /новаяцитата")
+
+@dp.message(Command("новаяцитата"))
+async def cmd_new_quote(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("❌ Только для админов.")
+        return
+    
+    text = message.text.replace("/новаяцитата", "").strip()
+    if not text:
+        await message.answer("📝 Формат: /новаяцитата <текст цитаты>")
+        return
+    
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO quotes (text, author_id, author_name, date) VALUES (?, ?, ?, ?)",
+            (text, message.from_user.id, message.from_user.full_name, datetime.now().isoformat())
+        )
+        conn.commit()
+    await message.answer("✅ Цитата добавлена!")
+
+# ---- ЦАРЬ ССГШКИ ----
+@dp.message(Command("царь"))
+async def cmd_king(message: Message):
+    # Проверяем, что команда в группе (или хотя бы в чате не в личке)
+    if message.chat.type == "private":
+        await message.answer("👑 Эта команда работает только в групповом чате!")
+        return
+    
+    today = datetime.now().date().isoformat()
+    
+    with get_db() as conn:
+        cursor = conn.execute("SELECT last_date, last_user_id FROM king WHERE id=1")
+        row = cursor.fetchone()
+        
+        if row and row[0] == today:
+            await message.answer("⏳ Сегодня уже выбрали царя! Приходи завтра.")
+            return
+        
+        # Выбираем случайного пользователя из кэша
+        cursor = conn.execute("SELECT user_id, name FROM users_cache ORDER BY RANDOM() LIMIT 1")
+        users = cursor.fetchall()
+        if not users:
+            await message.answer("📭 Нет активистов в базе. Попросите кого-нибудь открыть сундук или подождите синхронизации.")
+            return
+        
+        king_id, king_name = users[0]
+        
+        # Начисляем 5 снимочков
+        current = get_user_snimochki(king_id)
+        update_user_snimochki(king_id, current + 5)
+        
+        # Записываем в историю царей
+        if row:
+            conn.execute("UPDATE king SET last_date=?, last_user_id=? WHERE id=1", (today, king_id))
+        else:
+            conn.execute("INSERT INTO king (id, last_date, last_user_id) VALUES (1, ?, ?)", (today, king_id))
+        conn.commit()
+        
+        await message.answer(
+            f"👑 Царь ССГШки сегодня — @{king_name or str(king_id)}! +5 снимочков!"
+        )
+
+# ============= ФОНОВАЯ СИНХРОНИЗАЦИЯ =============
+async def background_sync():
+    while True:
+        await asyncio.sleep(60)  # раз в минуту
+        try:
+            sync_users_from_google()
+        except Exception as e:
+            logging.error(f"Ошибка фоновой синхронизации: {e}")
+
+# ============= ЗАПУСК =============
 async def main():
     init_db()
-    print("🚀 Бот СНИМочки (API версия) запущен! Нажми Ctrl+C для остановки.")
+    # Первичная синхронизация
+    sync_users_from_google()
+    # Запускаем фоновую задачу
+    asyncio.create_task(background_sync())
+    print("🚀 Бот СНИМочки запущен! Нажми Ctrl+C для остановки.")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
