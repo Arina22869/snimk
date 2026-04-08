@@ -380,19 +380,32 @@ async def spin_cb(cb: CallbackQuery):
 # ============= ЦИТАТЫ =============
 @dp.message(Command("цитата"))
 async def quote_cmd(m: Message):
+    # Если команда в ответ на сообщение — добавляем цитату И отвечаем этим сообщением
     if m.reply_to_message:
-        txt = m.reply_to_message.text
-        if not txt:
+        original_text = m.reply_to_message.text
+        if not original_text:
             await m.answer("❌ В исходном сообщении нет текста.")
             return
-        aid = m.reply_to_message.from_user.id
-        aname = m.reply_to_message.from_user.full_name
+        
+        author_id = m.reply_to_message.from_user.id
+        author_name = m.reply_to_message.from_user.full_name
+        
+        # Сохраняем в базу
         with get_db() as conn:
-            conn.execute("INSERT INTO quotes (text, author_id, author_name, date) VALUES (?, ?, ?, ?)",
-                        (txt, aid, aname, datetime.now().isoformat()))
+            conn.execute(
+                "INSERT INTO quotes (text, author_id, author_name, date) VALUES (?, ?, ?, ?)",
+                (original_text, author_id, author_name, datetime.now().isoformat())
+            )
             conn.commit()
-        await m.answer(f"✅ Цитата от {aname} добавлена!")
+        
+        # Отвечаем на исходное сообщение как цитата
+        await m.reply_to_message.reply(
+            f"💬 *{original_text}*\n\n— {author_name}",
+            parse_mode="Markdown"
+        )
         return
+    
+    # Если нет ответа — показываем случайную цитату
     with get_db() as conn:
         cur = conn.execute("SELECT text, author_name FROM quotes ORDER BY RANDOM() LIMIT 1")
         row = cur.fetchone()
