@@ -379,40 +379,40 @@ async def spin_cb(cb: CallbackQuery):
 
 # ============= ЦИТАТЫ =============
 @dp.message(Command("цитата"))
-async def quote_cmd(m: Message):
-    # Если команда в ответ на сообщение — добавляем цитату И отвечаем этим сообщением
-    if m.reply_to_message:
-        original_text = m.reply_to_message.text
-        if not original_text:
-            await m.answer("❌ В исходном сообщении нет текста.")
+async def quote_cmd(message: Message):
+    # Режим 1: ответ на сообщение → добавляем цитату
+    if message.reply_to_message:
+        original = message.reply_to_message.text
+        if not original:
+            await message.answer("❌ В сообщении нет текста для цитаты.")
             return
-        
-        author_id = m.reply_to_message.from_user.id
-        author_name = m.reply_to_message.from_user.full_name
-        
+
+        author_id = message.reply_to_message.from_user.id
+        author_name = message.reply_to_message.from_user.full_name
+
         # Сохраняем в базу
         with get_db() as conn:
             conn.execute(
                 "INSERT INTO quotes (text, author_id, author_name, date) VALUES (?, ?, ?, ?)",
-                (original_text, author_id, author_name, datetime.now().isoformat())
+                (original, author_id, author_name, datetime.now().isoformat())
             )
             conn.commit()
-        
+
         # Отвечаем на исходное сообщение как цитата
-        await m.reply_to_message.reply(
-            f"💬 *{original_text}*\n\n— {author_name}",
+        await message.reply_to_message.reply(
+            f"💬 *{original}*\n\n— {author_name}",
             parse_mode="Markdown"
         )
         return
-    
-    # Если нет ответа — показываем случайную цитату
+
+    # Режим 2: нет ответа → показываем случайную цитату
     with get_db() as conn:
         cur = conn.execute("SELECT text, author_name FROM quotes ORDER BY RANDOM() LIMIT 1")
         row = cur.fetchone()
         if row:
-            await m.answer(f"💬 *{row[0]}*\n\n— {row[1]}", parse_mode="Markdown")
+            await message.answer(f"💬 *{row[0]}*\n\n— {row[1]}", parse_mode="Markdown")
         else:
-            await m.answer("📭 Цитат пока нет. Добавьте первую, ответив на сообщение командой /цитата")
+            await message.answer("📭 Цитат пока нет. Добавьте первую, ответив на сообщение командой /цитата")
 
 # ============= ЦАРЬ ССГШКИ =============
 @dp.message(Command("царь"))
