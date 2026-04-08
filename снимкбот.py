@@ -365,39 +365,45 @@ async def spin_cb(cb: CallbackQuery):
 
 # ============= ЦИТАТЫ =============
 @dp.message(Command("цитата"))
-async def quote_cmd(message: Message):
-    if message.reply_to_message:
-        original = message.reply_to_message.text
-        if not original:
-            await message.answer("❌ В сообщении нет текста для цитаты.")
-            return
-
-        author_id = message.reply_to_message.from_user.id
-        author_name = message.reply_to_message.from_user.full_name
-
-        with get_db() as conn:
-            conn.execute(
-                "INSERT INTO quotes (text, author_id, author_name, date) VALUES (?, ?, ?, ?)",
-                (original, author_id, author_name, datetime.now().isoformat())
-            )
-            conn.commit()
-
-        await message.reply_to_message.reply(
-            f"💬 *{original}*\n\n— {author_name}",
-            parse_mode="Markdown"
-        )
+async def add_quote(m: Message):
+    """Добавить цитату (только в ответ на сообщение)"""
+    if not m.reply_to_message:
+        await m.answer("❌ Чтобы добавить цитату, ответьте на сообщение командой /цитата")
         return
 
+    original = m.reply_to_message.text
+    if not original:
+        await m.answer("❌ В исходном сообщении нет текста.")
+        return
+
+    author_id = m.reply_to_message.from_user.id
+    author_name = m.reply_to_message.from_user.full_name
+
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO quotes (text, author_id, author_name, date) VALUES (?, ?, ?, ?)",
+            (original, author_id, author_name, datetime.now().isoformat())
+        )
+        conn.commit()
+
+    await m.reply_to_message.reply(
+        f"💬 *{original}*\n\n— {author_name}",
+        parse_mode="Markdown"
+    )
+
+@dp.message(Command("рандом"))
+async def random_quote(m: Message):
+    """Показать случайную цитату"""
     for attempt in range(3):
         try:
             with get_db() as conn:
                 cur = conn.execute("SELECT text, author_name FROM quotes ORDER BY RANDOM() LIMIT 1")
                 row = cur.fetchone()
                 if row:
-                    await message.answer(f"💬 *{row[0]}*\n\n— {row[1]}", parse_mode="Markdown")
+                    await m.answer(f"💬 *{row[0]}*\n\n— {row[1]}", parse_mode="Markdown")
                 else:
-                    await message.answer("📭 Цитат пока нет. Добавьте первую, ответив на сообщение командой /цитата")
-            break
+                    await m.answer("📭 Цитат пока нет. Добавьте первую, ответив на сообщение командой /цитата")
+            return
         except sqlite3.OperationalError as e:
             if "database is locked" in str(e) and attempt < 2:
                 await asyncio.sleep(0.5)
@@ -430,7 +436,7 @@ async def king_cmd(m: Message):
         else:
             conn.execute("INSERT INTO king (id, last_date, last_user_id) VALUES (1, ?, ?)", (today, kid))
         conn.commit()
-        await m.answer(f"👑 Царь ССГШки сегодня — {kname}! +5 снимочков!")
+        await m.answer(f"👑 Царь ССТШки сегодня — {kname}! +5 снимочков!")
 
 # ============= ФОН =============
 async def bg_sync():
