@@ -54,7 +54,7 @@ dp = Dispatcher()
 # ============= БАЗА ДАННЫХ =============
 @contextmanager
 def get_db():
-    conn = sqlite3.connect('snimochki.db')
+    conn = sqlite3.connect('snimochki.db', timeout=10)
     try:
         yield conn
     finally:
@@ -73,19 +73,8 @@ def init_db():
         )''')
         conn.execute('CREATE TABLE IF NOT EXISTS king (id INTEGER PRIMARY KEY, last_date TEXT, last_user_id INTEGER)')
         conn.commit()
-        
-        cursor = conn.execute("SELECT COUNT(*) FROM quotes")
-        if cursor.fetchone()[0] == 0:
-            sample = [
-                ("А я думал, дедлайн — это имя!", 1, "Admin", datetime.now().isoformat()),
-                ("Студсовет — это семья, где все друг друга крышуют", 1, "Admin", datetime.now().isoformat()),
-            ]
-            for text, aid, aname, date in sample:
-                conn.execute("INSERT INTO quotes (text, author_id, author_name, date) VALUES (?, ?, ?, ?)",
-                           (text, aid, aname, date))
-            conn.commit()
 
-# ============= GOOGLE SHEETS (фоновая запись) =============
+# ============= GOOGLE SHEETS =============
 def get_gs_client():
     try:
         creds_dict = json.loads(KEY_JSON)
@@ -100,7 +89,6 @@ def get_gs_client():
         return None
 
 def sync_to_google(user_id, new_value):
-    """Синхронная отправка в Google (выполняется в отдельном потоке)"""
     client = get_gs_client()
     if not client:
         return
@@ -122,7 +110,6 @@ def sync_to_google(user_id, new_value):
         logging.error(f"❌ Ошибка обновления Google: {e}")
 
 def update_user_snimochki(user_id, new_value):
-    """Мгновенно обновляет кэш, в Google отправляет в фоне"""
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("UPDATE users_cache SET snimochki=? WHERE user_id=?", (new_value, user_id))
@@ -142,7 +129,6 @@ def get_user_snimochki(user_id):
         return row[0] if row else 0
 
 def sync_users_from_google():
-    """Фоновая синхронизация всей таблицы (раз в минуту)"""
     client = get_gs_client()
     if not client:
         return
@@ -380,7 +366,6 @@ async def spin_cb(cb: CallbackQuery):
 # ============= ЦИТАТЫ =============
 @dp.message(Command("цитата"))
 async def quote_cmd(message: Message):
-    # Режим 1: ответ на сообщение → добавляем цитату
     if message.reply_to_message:
         original = message.reply_to_message.text
         if not original:
@@ -390,7 +375,6 @@ async def quote_cmd(message: Message):
         author_id = message.reply_to_message.from_user.id
         author_name = message.reply_to_message.from_user.full_name
 
-        # Сохраняем в базу
         with get_db() as conn:
             conn.execute(
                 "INSERT INTO quotes (text, author_id, author_name, date) VALUES (?, ?, ?, ?)",
@@ -398,21 +382,27 @@ async def quote_cmd(message: Message):
             )
             conn.commit()
 
-        # Отвечаем на исходное сообщение как цитата
         await message.reply_to_message.reply(
             f"💬 *{original}*\n\n— {author_name}",
             parse_mode="Markdown"
         )
         return
 
-    # Режим 2: нет ответа → показываем случайную цитату
-    with get_db() as conn:
-        cur = conn.execute("SELECT text, author_name FROM quotes ORDER BY RANDOM() LIMIT 1")
-        row = cur.fetchone()
-        if row:
-            await message.answer(f"💬 *{row[0]}*\n\n— {row[1]}", parse_mode="Markdown")
-        else:
-            await message.answer("📭 Цитат пока нет. Добавьте первую, ответив на сообщение командой /цитата")
+    for attempt in range(3):
+        try:
+            with get_db() as conn:
+                cur = conn.execute("SELECT text, author_name FROM quotes ORDER BY RANDOM() LIMIT 1")
+                row = cur.fetchone()
+                if row:
+                    await message.answer(f"💬 *{row[0]}*\n\n— {row[1]}", parse_mode="Markdown")
+                else:
+                    await message.answer("📭 Цитат пока нет. Добавьте первую, ответив на сообщение командой /цитата")
+            break
+        except sqlite3.OperationalError as e:
+            if "database is locked" in str(e) and attempt < 2:
+                await asyncio.sleep(0.5)
+                continue
+            raise
 
 # ============= ЦАРЬ ССГШКИ =============
 @dp.message(Command("царь"))
